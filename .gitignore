@@ -1,0 +1,6 @@
+output/*
+!output/welcome_output_*.txt
+*.zip
+build*/
+**/build*/
+**/*.app/
