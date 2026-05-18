@@ -47,5 +47,9 @@ wss.on("connection", (ws, req) => {
 });
 
 server.listen(PORT, () => {
+  const mockMode = process.env.MOCK_MODE === "true";
   console.log(`TherapyNav backend listening on port ${PORT}`);
+  if (mockMode) {
+    console.log("⚠️  MOCK_MODE=true — no Anthropic API calls will be made");
+  }
 });

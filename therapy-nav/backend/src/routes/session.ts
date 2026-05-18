@@ -2,6 +2,10 @@ import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { createSession, getSession } from "../sessionStore.js";
 import { runOrchestratorTurn } from "../agent/orchestrator.js";
+import { runMockOrchestratorTurn } from "../agent/mockOrchestrator.js";
+
+const MOCK_MODE = process.env.MOCK_MODE === "true";
+const runTurn = MOCK_MODE ? runMockOrchestratorTurn : runOrchestratorTurn;
 
 const router = Router();
 
@@ -27,7 +31,7 @@ router.post("/:id/message", async (req: Request, res: Response) => {
   }
 
   try {
-    const reply = await runOrchestratorTurn(req.params.id, message);
+    const reply = await runTurn(req.params.id, message);
     res.json({ reply, phase: session.phase });
   } catch (err) {
     console.error("Orchestrator error:", err);
@@ -61,7 +65,7 @@ router.post("/:id/select", async (req: Request, res: Response) => {
   }
 
   try {
-    const reply = await runOrchestratorTurn(
+    const reply = await runTurn(
       req.params.id,
       `I'd like to book with ${therapist.name}. Their ID is ${therapistId}.`
     );
