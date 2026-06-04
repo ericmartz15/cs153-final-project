@@ -66,7 +66,7 @@ Return a JSON object: {"profiles": [...]} where each profile has:
 Make profiles varied: different genders, backgrounds, modalities. Be honest in tradeoffExplanation about insurance mismatches or waitlists.`;
 
   const response = await getClient().chat.completions.create({
-    model: process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4-5",
+    model: process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-opus-4.7-fast",
     max_tokens: 2500,
     temperature: 0.7,
     messages: [{ role: "user", content: prompt }],

@@ -22,7 +22,7 @@ function getClient(): OpenAI {
   return _client;
 }
 
-const MODEL = process.env.OPENROUTER_MODEL ?? "anthropic/claude-haiku-4-5";
+const MODEL = process.env.OPENROUTER_MODEL ?? "anthropic/claude-opus-4.7-fast";
 
 const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
   {
