@@ -1,8 +1,17 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { NormalizedProfile } from "../../types/index.js";
 import { v4 as uuidv4 } from "uuid";
 
-const client = new Anthropic();
+const client = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
+  defaultHeaders: {
+    "HTTP-Referer": "https://therapynav.app",
+    "X-OpenRouter-Title": "TherapyNav",
+  },
+});
+
+const FAST_MODEL = process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4-5";
 
 const EXTRACTION_PROMPT = `Extract therapist profile information from the following HTML/text.
 Return a JSON object with these exact fields (use null for missing values):
@@ -29,36 +38,42 @@ export async function extractProfile(
   source: string,
   profileUrl: string
 ): Promise<NormalizedProfile> {
-  // Truncate to avoid token limits
   const truncated = rawText.slice(0, 8000);
 
   try {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
+    const response = await client.chat.completions.create({
+      model: FAST_MODEL,
       max_tokens: 1024,
-      system: EXTRACTION_PROMPT,
-      messages: [{ role: "user", content: `SOURCE: ${source}\nURL: ${profileUrl}\n\n${truncated}` }],
+      messages: [
+        { role: "system", content: EXTRACTION_PROMPT },
+        {
+          role: "user",
+          content: `SOURCE: ${source}\nURL: ${profileUrl}\n\n${truncated}`,
+        },
+      ],
     });
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "{}";
-    const parsed = JSON.parse(text);
+    const text = response.choices[0].message.content ?? "{}";
+    const parsed = JSON.parse(text) as Record<string, unknown>;
 
     return {
       id: uuidv4(),
       source,
-      name: parsed.name ?? "Unknown",
-      credentials: parsed.credentials ?? "",
-      specialties: Array.isArray(parsed.specialties) ? parsed.specialties : [],
-      insuranceAccepted: Array.isArray(parsed.insuranceAccepted) ? parsed.insuranceAccepted : [],
-      selfPayRate: parsed.selfPayRate ?? undefined,
-      location: parsed.location ?? "Unknown",
+      name: (parsed.name as string) ?? "Unknown",
+      credentials: (parsed.credentials as string) ?? "",
+      specialties: Array.isArray(parsed.specialties) ? (parsed.specialties as string[]) : [],
+      insuranceAccepted: Array.isArray(parsed.insuranceAccepted)
+        ? (parsed.insuranceAccepted as string[])
+        : [],
+      selfPayRate: (parsed.selfPayRate as string) ?? undefined,
+      location: (parsed.location as string) ?? "Unknown",
       telehealth: Boolean(parsed.telehealth),
       acceptingNewPatients: parsed.acceptingNewPatients !== false,
-      nextAvailableSlot: parsed.nextAvailableSlot ?? undefined,
-      bookingUrl: parsed.bookingUrl ?? undefined,
-      contactEmail: parsed.contactEmail ?? undefined,
-      contactPhone: parsed.contactPhone ?? undefined,
-      photoUrl: parsed.photoUrl ?? undefined,
+      nextAvailableSlot: (parsed.nextAvailableSlot as string) ?? undefined,
+      bookingUrl: (parsed.bookingUrl as string) ?? undefined,
+      contactEmail: (parsed.contactEmail as string) ?? undefined,
+      contactPhone: (parsed.contactPhone as string) ?? undefined,
+      photoUrl: (parsed.photoUrl as string) ?? undefined,
       profileUrl,
     };
   } catch (err) {

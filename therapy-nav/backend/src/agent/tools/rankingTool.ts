@@ -1,8 +1,16 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { NormalizedProfile, RankedProfile, IntakePreferences } from "../../types/index.js";
 
-const client = new Anthropic();
+const client = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
+  defaultHeaders: {
+    "HTTP-Referer": "https://therapynav.app",
+    "X-OpenRouter-Title": "TherapyNav",
+  },
+});
 
+const FAST_MODEL = process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4-5";
 const MAX_SHORTLIST = parseInt(process.env.MAX_SHORTLIST ?? "5", 10);
 
 function scoreProfile(profile: NormalizedProfile, prefs: IntakePreferences): number {
@@ -43,7 +51,7 @@ function scoreProfile(profile: NormalizedProfile, prefs: IntakePreferences): num
     }
   }
 
-  // Accepting new patients: +20 pts (already disqualified if false above)
+  // Accepting new patients: +20 pts
   score += 20;
 
   // Telehealth match: +15 pts
@@ -83,8 +91,8 @@ async function generateTradeoffExplanation(
   );
 
   try {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
+    const response = await client.chat.completions.create({
+      model: FAST_MODEL,
       max_tokens: 150,
       messages: [
         {
@@ -103,9 +111,7 @@ Be honest about tradeoffs. Keep it under 40 words. Warm and empathetic tone.`,
       ],
     });
 
-    return response.content[0].type === "text"
-      ? response.content[0].text.trim()
-      : "A good match based on your preferences.";
+    return response.choices[0].message.content?.trim() ?? "A good match based on your preferences.";
   } catch {
     if (hasInsuranceMatch && specialtyMatches.length > 0) {
       return `Matches your insurance and specializes in ${specialtyMatches[0]}. Strong overall fit for your needs.`;
@@ -126,11 +132,7 @@ export async function rankProfiles(
 
   const ranked: RankedProfile[] = await Promise.all(
     scored.map(async ({ profile, score }) => {
-      const tradeoffExplanation = await generateTradeoffExplanation(
-        profile,
-        prefs,
-        score
-      );
+      const tradeoffExplanation = await generateTradeoffExplanation(profile, prefs, score);
       return { ...profile, score, tradeoffExplanation };
     })
   );
