@@ -1,6 +1,14 @@
 import { getSession, updateSession, emitEvent } from "../sessionStore.js";
 import { MOCK_PROFILES } from "./mockData.js";
-import { RankedProfile } from "../types/index.js";
+import { RankedProfile, IntakePreferences } from "../types/index.js";
+
+// Stub preferences used in mock mode
+const MOCK_PREFS: IntakePreferences = {
+  specialty: ["anxiety", "stress"],
+  insurance: "Aetna",
+  location: { city: "San Francisco", state: "CA" },
+  availability: { days: ["Monday", "Wednesday"], timeOfDay: ["evening"] },
+};
 
 // Scripted intake conversation state machine
 const INTAKE_SCRIPT = [
@@ -80,11 +88,12 @@ async function simulateSearch(sessionId: string): Promise<void> {
 
 async function simulateBooking(sessionId: string, therapist: RankedProfile): Promise<void> {
   const steps = [
-    { msg: `Navigating to ${therapist.name}'s booking page…`, delay: 800 },
-    { msg: "Page loaded. Looking for the appointment form…", delay: 1000 },
-    { msg: "Found it. Filling in your name…", delay: 900 },
-    { msg: "Selecting preferred appointment time…", delay: 1100 },
-    { msg: "Filling in reason for visit…", delay: 900 },
+    { msg: `Opening ${therapist.name}'s booking page…`, delay: 800 },
+    { msg: "Page loaded. Reading all form fields on the page…", delay: 1000 },
+    { msg: "Filling in your name…", delay: 900 },
+    { msg: "Selecting preferred appointment time: weekday evening…", delay: 1100 },
+    { msg: "Filling in reason for visit: anxiety and stress support…", delay: 900 },
+    { msg: "Clicking Next to advance to the next step…", delay: 700 },
   ];
 
   for (const { msg, delay } of steps) {

@@ -201,7 +201,7 @@ async function executeTool(
       const therapist = session.profiles?.find((p) => p.id === therapistId);
       if (!therapist) return { error: "Therapist not found" };
 
-      const bookingSession = await startBooking(therapist as RankedProfile, sessionId);
+      const bookingSession = await startBooking(therapist as RankedProfile, sessionId, session.preferences);
       updateSession(sessionId, { bookingSession, phase: "booking" });
 
       if (bookingSession.status === "fallback") {
