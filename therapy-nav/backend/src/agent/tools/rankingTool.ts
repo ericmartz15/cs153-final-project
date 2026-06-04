@@ -16,7 +16,7 @@ function getClient(): OpenAI {
   return _client;
 }
 
-const FAST_MODEL = process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4-5";
+const FAST_MODEL = process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-opus-4.7-fast";
 const MAX_SHORTLIST = parseInt(process.env.MAX_SHORTLIST ?? "5", 10);
 
 function scoreProfile(profile: NormalizedProfile, prefs: IntakePreferences): number {

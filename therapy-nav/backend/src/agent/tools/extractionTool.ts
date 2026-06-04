@@ -17,7 +17,7 @@ function getClient(): OpenAI {
   return _client;
 }
 
-const FAST_MODEL = process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4-5";
+const FAST_MODEL = process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-opus-4.7-fast";
 
 const EXTRACTION_PROMPT = `Extract therapist profile information from the following HTML/text.
 Return a JSON object with these exact fields (use null for missing values):

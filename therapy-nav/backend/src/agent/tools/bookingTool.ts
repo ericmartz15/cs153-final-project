@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from "uuid";
 
 const HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== "false";
 const MAX_STEPS = 25;
-const MODEL = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4-5";
+const MODEL = process.env.OPENROUTER_MODEL ?? "anthropic/claude-opus-4.7-fast";
 
 let _client: OpenAI | null = null;
 function getClient(): OpenAI {
