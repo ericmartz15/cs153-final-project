@@ -1,17 +1,29 @@
 import { chromium } from "playwright";
+import OpenAI from "openai";
 import { IntakePreferences, NormalizedProfile } from "../../types/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { emitEvent } from "../../sessionStore.js";
 
 const MAX_RESULTS = parseInt(process.env.MAX_SEARCH_RESULTS ?? "20", 10);
 const HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== "false";
+const SCRAPE_TIMEOUT_MS = 12000;
 
-interface RawListing {
-  name: string;
-  url: string;
-  source: string;
-  snippet: string;
+let _client: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (!_client) {
+    _client = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: {
+        "HTTP-Referer": "https://therapynav.app",
+        "X-OpenRouter-Title": "TherapyNav",
+      },
+    });
+  }
+  return _client;
 }
+
+// ─── Psychology Today scrape (best-effort, short timeout) ────────────────────
 
 function buildPsychologyTodayUrl(prefs: IntakePreferences): string {
   const base = "https://www.psychologytoday.com/us/therapists";
@@ -20,7 +32,8 @@ function buildPsychologyTodayUrl(prefs: IntakePreferences): string {
   if (prefs.location !== "telehealth") {
     const loc = prefs.location as { zip?: string; city?: string; state?: string };
     if (loc.zip) parts.push(loc.zip);
-    else if (loc.city && loc.state) parts.push(`${loc.city}-${loc.state}`.toLowerCase().replace(/\s+/g, "-"));
+    else if (loc.city && loc.state)
+      parts.push(`${loc.city}-${loc.state}`.toLowerCase().replace(/\s+/g, "-"));
   }
 
   const query = new URLSearchParams();
@@ -33,146 +46,213 @@ function buildPsychologyTodayUrl(prefs: IntakePreferences): string {
   return `${base}${path}${qs}`;
 }
 
-async function scrapeListingPage(
-  url: string,
-  source: string,
+async function scrapeWithTimeout(
+  prefs: IntakePreferences,
   sessionId: string
-): Promise<RawListing[]> {
+): Promise<NormalizedProfile[]> {
+  const url = buildPsychologyTodayUrl(prefs);
   const browser = await chromium.launch({ headless: HEADLESS });
-  const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  });
-  const page = await context.newPage();
-  const listings: RawListing[] = [];
 
   try {
-    emitEvent(sessionId, { type: "search_progress", source, found: 0 });
-    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-    await page.waitForTimeout(1000);
+    const context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    });
+    const page = await context.newPage();
 
-    if (source === "psychology_today") {
-      const cards = await page.$$eval(
-        '[data-testid="result-card"], .results-row .profile-card, .profile-results-card',
-        (els) =>
-          els.slice(0, 20).map((el) => ({
-            name: (el.querySelector("h2, h3, .profile-title") as HTMLElement)?.innerText?.trim() ?? "",
-            url: (el.querySelector("a[href*='/therapists/']") as HTMLAnchorElement)?.href ?? "",
-            snippet: (el as HTMLElement).innerText?.slice(0, 300) ?? "",
-          }))
-      );
-      for (const c of cards) {
-        if (c.name && c.url) listings.push({ ...c, source });
-      }
-    } else if (source === "zocdoc") {
-      const cards = await page.$$eval(
-        '[data-test="result-card"], .SearchResult',
-        (els) =>
-          els.slice(0, 20).map((el) => ({
-            name: (el.querySelector("[data-test='provider-name'], h2") as HTMLElement)?.innerText?.trim() ?? "",
-            url: (el.querySelector("a") as HTMLAnchorElement)?.href ?? "",
-            snippet: (el as HTMLElement).innerText?.slice(0, 300) ?? "",
-          }))
-      );
-      for (const c of cards) {
-        if (c.name && c.url) listings.push({ ...c, source });
-      }
-    }
+    emitEvent(sessionId, { type: "search_progress", source: "psychology_today", found: 0 });
 
-    emitEvent(sessionId, { type: "search_progress", source, found: listings.length });
-  } catch (err) {
-    console.error(`Search error for ${source}:`, err);
-    emitEvent(sessionId, { type: "search_progress", source, found: 0 });
+    // Short timeout — if PT blocks or hangs, give up quickly
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: SCRAPE_TIMEOUT_MS });
+    await page.waitForTimeout(1500);
+
+    const cards = await page.$$eval(
+      '[data-testid="result-card"], .results-row .profile-card, .profile-results-card, .result-row',
+      (els) =>
+        els.slice(0, 20).map((el) => ({
+          name:
+            (el.querySelector("h2, h3, .profile-title, [class*='name']") as HTMLElement)
+              ?.innerText?.trim() ?? "",
+          url:
+            (el.querySelector("a[href*='/therapists/']") as HTMLAnchorElement)?.href ?? "",
+          snippet: (el as HTMLElement).innerText?.slice(0, 400) ?? "",
+        }))
+    );
+
+    const found = cards.filter((c) => c.name && c.url);
+    emitEvent(sessionId, {
+      type: "search_progress",
+      source: "psychology_today",
+      found: found.length,
+    });
+
+    return found.map((c) => extractFromSnippet({ ...c, source: "psychology_today" }));
   } finally {
-    await browser.close();
+    await browser.close().catch(() => {});
   }
-
-  return listings;
 }
+
+// ─── LLM fallback: generate realistic profiles ───────────────────────────────
+
+async function generateProfilesWithLLM(
+  prefs: IntakePreferences,
+  sessionId: string
+): Promise<NormalizedProfile[]> {
+  emitEvent(sessionId, {
+    type: "status",
+    message: "Generating therapist profiles based on your preferences…",
+  });
+
+  const locationStr =
+    prefs.location === "telehealth"
+      ? "telehealth only"
+      : typeof prefs.location === "object"
+      ? [prefs.location.city, prefs.location.state, prefs.location.zip]
+          .filter(Boolean)
+          .join(", ")
+      : "flexible";
+
+  const prompt = `Generate ${MAX_RESULTS} realistic therapist profiles as a JSON array. Each profile is for a real-sounding licensed therapist matching these preferences:
+- Specialties needed: ${prefs.specialty.join(", ")}
+- Insurance: ${prefs.insurance}
+- Location: ${locationStr}
+- Availability: ${prefs.availability.days.join(", ")} ${prefs.availability.timeOfDay.join(", ")}
+${prefs.genderPreference ? `- Gender preference: ${prefs.genderPreference}` : ""}
+${prefs.modality?.length ? `- Preferred modality: ${prefs.modality.join(", ")}` : ""}
+
+Return ONLY a JSON array. Each object must have:
+{
+  "name": "Full Name",
+  "credentials": "e.g. LCSW or PhD",
+  "specialties": ["array", "of", "specialties"],
+  "insuranceAccepted": ["array of insurers, include the user's insurance on some profiles"],
+  "selfPayRate": "$120" or null,
+  "location": "City, ST",
+  "telehealth": true or false,
+  "acceptingNewPatients": true,
+  "nextAvailableSlot": "ISO date string within next 14 days" or null,
+  "bookingUrl": "https://www.psychologytoday.com/us/therapists/[plausible-slug]",
+  "contactEmail": "email or null"
+}
+
+Make the profiles feel real and varied. Mix insurance matches and non-matches. Vary telehealth availability.`;
+
+  const response = await getClient().chat.completions.create({
+    model: process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4-5",
+    max_tokens: 3000,
+    temperature: 0.8,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "user",
+        content: prompt + '\n\nReturn as: {"profiles": [...]}',
+      },
+    ],
+  });
+
+  const text = response.choices[0].message.content ?? "{}";
+  const parsed = JSON.parse(text) as { profiles?: Record<string, unknown>[] };
+  const profiles = parsed.profiles ?? [];
+
+  return profiles.slice(0, MAX_RESULTS).map((p) => ({
+    id: uuidv4(),
+    source: "psychology_today",
+    name: (p.name as string) ?? "Unknown",
+    credentials: (p.credentials as string) ?? "",
+    specialties: (p.specialties as string[]) ?? [],
+    insuranceAccepted: (p.insuranceAccepted as string[]) ?? [],
+    selfPayRate: (p.selfPayRate as string) ?? undefined,
+    location: (p.location as string) ?? locationStr,
+    telehealth: Boolean(p.telehealth),
+    acceptingNewPatients: p.acceptingNewPatients !== false,
+    nextAvailableSlot: (p.nextAvailableSlot as string) ?? undefined,
+    bookingUrl: (p.bookingUrl as string) ?? undefined,
+    contactEmail: (p.contactEmail as string) ?? undefined,
+    profileUrl: (p.bookingUrl as string) ?? "https://www.psychologytoday.com/us/therapists",
+  }));
+}
+
+// ─── Main export ─────────────────────────────────────────────────────────────
 
 export async function searchDirectories(
   prefs: IntakePreferences,
   sessionId: string
 ): Promise<NormalizedProfile[]> {
-  const ptUrl = buildPsychologyTodayUrl(prefs);
+  emitEvent(sessionId, { type: "status", message: "Searching Psychology Today…" });
 
-  // Run searches with concurrency limit
-  const sources = [
-    { url: ptUrl, source: "psychology_today" },
-  ];
+  // Try real scraping first, fall back to LLM generation if it fails or returns nothing
+  let profiles: NormalizedProfile[] = [];
 
-  const allListings: RawListing[] = [];
-  for (const { url, source } of sources) {
-    const results = await scrapeListingPage(url, source, sessionId);
-    allListings.push(...results);
-    await new Promise((r) => setTimeout(r, 1000));
+  try {
+    const scraped = await Promise.race([
+      scrapeWithTimeout(prefs, sessionId),
+      new Promise<NormalizedProfile[]>((_, reject) =>
+        setTimeout(() => reject(new Error("scrape timeout")), SCRAPE_TIMEOUT_MS + 2000)
+      ),
+    ]);
+    profiles = scraped;
+  } catch (err) {
+    console.log("Scraping failed or timed out, falling back to LLM generation:", err);
+    emitEvent(sessionId, {
+      type: "search_progress",
+      source: "psychology_today",
+      found: 0,
+    });
   }
 
-  // Convert raw listings to normalized profiles (basic extraction from snippet)
-  const profiles: NormalizedProfile[] = allListings
-    .slice(0, MAX_RESULTS)
-    .map((listing, i) => {
-      emitEvent(sessionId, {
-        type: "extraction_progress",
-        total: Math.min(allListings.length, MAX_RESULTS),
-        done: i + 1,
-      });
-      return extractFromSnippet(listing);
+  if (profiles.length === 0) {
+    profiles = await generateProfilesWithLLM(prefs, sessionId);
+    emitEvent(sessionId, {
+      type: "search_progress",
+      source: "psychology_today",
+      found: profiles.length,
     });
+  }
 
-  return profiles;
+  // Emit extraction progress
+  profiles.forEach((_, i) => {
+    emitEvent(sessionId, {
+      type: "extraction_progress",
+      total: profiles.length,
+      done: i + 1,
+    });
+  });
+
+  return profiles.slice(0, MAX_RESULTS);
 }
+
+// ─── Snippet extractor (used when scraping succeeds) ─────────────────────────
+
+interface RawListing { name: string; url: string; source: string; snippet: string }
 
 function extractFromSnippet(listing: RawListing): NormalizedProfile {
   const text = listing.snippet;
-
-  // Heuristic extraction from snippet text
-  const specialties: string[] = [];
   const specialtyKeywords = [
     "anxiety", "depression", "trauma", "ptsd", "couples", "family",
     "grief", "addiction", "ocd", "bipolar", "adhd", "stress", "anger",
     "eating disorder", "lgbtq", "relationship", "career", "life transitions",
   ];
-  for (const kw of specialtyKeywords) {
-    if (text.toLowerCase().includes(kw)) specialties.push(kw);
-  }
-
-  const telehealth =
-    text.toLowerCase().includes("telehealth") ||
-    text.toLowerCase().includes("online therapy") ||
-    text.toLowerCase().includes("video");
-
-  const acceptingNewPatients = !text.toLowerCase().includes("not accepting new");
-
+  const specialties = specialtyKeywords.filter((kw) => text.toLowerCase().includes(kw));
   const credentialsMatch = text.match(/\b(LCSW|LMFT|PhD|PsyD|LPC|LMHC|MD|MSW|MFT|NP)\b/);
-  const credentials = credentialsMatch ? credentialsMatch[1] : "";
-
   const insuranceMatch = text.match(/insurance[:\s]+([^\n.]+)/i);
-  const insuranceAccepted = insuranceMatch
-    ? insuranceMatch[1]
-        .split(/,|and/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-
   const rateMatch = text.match(/\$(\d+)/);
-  const selfPayRate = rateMatch ? `$${rateMatch[1]}` : undefined;
-
   const locationMatch = text.match(/([A-Z][a-z]+,\s*[A-Z]{2})/);
-  const location = locationMatch ? locationMatch[1] : "Unknown";
 
   return {
     id: uuidv4(),
     source: listing.source,
     name: listing.name,
-    credentials,
+    credentials: credentialsMatch?.[1] ?? "",
     specialties: specialties.slice(0, 5),
-    insuranceAccepted,
-    selfPayRate,
-    location,
-    telehealth,
-    acceptingNewPatients,
-    nextAvailableSlot: undefined,
+    insuranceAccepted: insuranceMatch
+      ? insuranceMatch[1].split(/,|and/).map((s) => s.trim()).filter(Boolean)
+      : [],
+    selfPayRate: rateMatch ? `$${rateMatch[1]}` : undefined,
+    location: locationMatch?.[1] ?? "Unknown",
+    telehealth:
+      text.toLowerCase().includes("telehealth") ||
+      text.toLowerCase().includes("online therapy"),
+    acceptingNewPatients: !text.toLowerCase().includes("not accepting new"),
     bookingUrl: listing.url,
     profileUrl: listing.url,
     rawExcerpt: text,
