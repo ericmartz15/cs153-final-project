@@ -2,7 +2,9 @@ import { useSessionStore } from "../store/sessionStore";
 import { Search, Loader2, CheckCircle, AlertCircle, MousePointerClick } from "lucide-react";
 
 export function StatusFeed() {
-  const statusFeed = useSessionStore((s) => s.statusFeed);
+  const statusFeed = useSessionStore((s) =>
+    s.statusFeed.filter((e) => !e.message.startsWith("Using tool:"))
+  );
 
   if (statusFeed.length === 0) return null;
 
