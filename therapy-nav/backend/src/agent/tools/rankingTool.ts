@@ -138,7 +138,12 @@ export async function rankProfiles(
 
   const ranked: RankedProfile[] = await Promise.all(
     scored.map(async ({ profile, score }) => {
-      const tradeoffExplanation = await generateTradeoffExplanation(profile, prefs, score);
+      // Reuse explanation already generated during search (stored in rawExcerpt)
+      // to avoid an extra LLM call per profile
+      const tradeoffExplanation =
+        profile.rawExcerpt && !profile.rawExcerpt.includes("<")
+          ? profile.rawExcerpt
+          : await generateTradeoffExplanation(profile, prefs, score);
       return { ...profile, score, tradeoffExplanation };
     })
   );
