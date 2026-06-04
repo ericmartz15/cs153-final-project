@@ -1,14 +1,20 @@
 import OpenAI from "openai";
 import { NormalizedProfile, RankedProfile, IntakePreferences } from "../../types/index.js";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-  defaultHeaders: {
-    "HTTP-Referer": "https://therapynav.app",
-    "X-OpenRouter-Title": "TherapyNav",
-  },
-});
+let _client: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (!_client) {
+    _client = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: {
+        "HTTP-Referer": "https://therapynav.app",
+        "X-OpenRouter-Title": "TherapyNav",
+      },
+    });
+  }
+  return _client;
+}
 
 const FAST_MODEL = process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4-5";
 const MAX_SHORTLIST = parseInt(process.env.MAX_SHORTLIST ?? "5", 10);
@@ -91,7 +97,7 @@ async function generateTradeoffExplanation(
   );
 
   try {
-    const response = await client.chat.completions.create({
+    const response = await getClient().chat.completions.create({
       model: FAST_MODEL,
       max_tokens: 150,
       messages: [

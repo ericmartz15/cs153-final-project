@@ -9,14 +9,20 @@ const HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== "false";
 const MAX_STEPS = 25;
 const MODEL = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4-5";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-  defaultHeaders: {
-    "HTTP-Referer": "https://therapynav.app",
-    "X-OpenRouter-Title": "TherapyNav",
-  },
-});
+let _client: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (!_client) {
+    _client = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: {
+        "HTTP-Referer": "https://therapynav.app",
+        "X-OpenRouter-Title": "TherapyNav",
+      },
+    });
+  }
+  return _client;
+}
 
 interface ActiveBooking {
   browser: Browser;
@@ -342,7 +348,7 @@ async function runBookingAgentLoop(
 
     let agentActionRaw: string;
     try {
-      const response = await client.chat.completions.create({
+      const response = await getClient().chat.completions.create({
         model: MODEL,
         max_tokens: 256,
         temperature: 0,
