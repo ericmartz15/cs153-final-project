@@ -167,6 +167,16 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
   },
 ];
 
+async function runSearchPipeline(sessionId: string, prefs: IntakePreferences): Promise<void> {
+  const profiles = await searchDirectories(prefs, sessionId);
+  updateSession(sessionId, { profiles: profiles as RankedProfile[] });
+
+  emitEvent(sessionId, { type: "status", message: "Ranking therapists by your preferences..." });
+  const ranked = await rankProfiles(profiles, prefs);
+  updateSession(sessionId, { profiles: ranked, phase: "results" });
+  emitEvent(sessionId, { type: "results_ready", count: ranked.length });
+}
+
 async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>,
@@ -180,26 +190,23 @@ async function executeTool(
       const prefs = toolInput.preferences as IntakePreferences;
       updateSession(sessionId, { preferences: prefs, phase: "searching" });
       emitEvent(sessionId, { type: "status", message: "Starting therapist search..." });
-      return { success: true, message: "Intake complete. Starting search." };
+
+      // Run search + rank in the background so Claude can reply immediately
+      runSearchPipeline(sessionId, prefs).catch((err) =>
+        console.error("Search pipeline error:", err)
+      );
+
+      return { success: true, message: "Searching now — results will appear shortly." };
     }
 
     case "search_directories": {
-      const prefs = (toolInput.preferences as IntakePreferences) ?? session.preferences!;
-      updateSession(sessionId, { phase: "searching" });
-      emitEvent(sessionId, { type: "status", message: "Searching therapist directories..." });
-      const profiles = await searchDirectories(prefs, sessionId);
-      updateSession(sessionId, { profiles: profiles as RankedProfile[] });
-      return { profiles, count: profiles.length };
+      // No-op: search is triggered automatically by intake_complete
+      return { success: true, message: "Search already in progress." };
     }
 
     case "rank_profiles": {
-      const prefs = (toolInput.preferences as IntakePreferences) ?? session.preferences!;
-      const rawProfiles = session.profiles ?? [];
-      emitEvent(sessionId, { type: "status", message: "Ranking therapists by your preferences..." });
-      const ranked = await rankProfiles(rawProfiles, prefs);
-      updateSession(sessionId, { profiles: ranked, phase: "results" });
-      emitEvent(sessionId, { type: "results_ready", count: ranked.length });
-      return { rankedProfiles: ranked };
+      // No-op: ranking happens inside runSearchPipeline
+      return { success: true, message: "Ranking already in progress." };
     }
 
     case "start_booking": {
