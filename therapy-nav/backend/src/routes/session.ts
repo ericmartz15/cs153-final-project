@@ -67,7 +67,7 @@ router.post("/:id/select", async (req: Request, res: Response) => {
   try {
     const reply = await runTurn(
       req.params.id,
-      `I'd like to book with ${therapist.name}. Their ID is ${therapistId}.`
+      `I'd like to book with ${therapist.name} (${therapist.credentials}). Their ID is ${therapistId}. Please start the booking process now using start_booking with therapist_id: "${therapistId}".`
     );
     res.json({ reply, phase: session.phase });
   } catch (err) {

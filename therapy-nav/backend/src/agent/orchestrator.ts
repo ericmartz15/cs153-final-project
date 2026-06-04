@@ -175,6 +175,29 @@ async function runSearchPipeline(sessionId: string, prefs: IntakePreferences): P
   const ranked = await rankProfiles(profiles, prefs);
   updateSession(sessionId, { profiles: ranked, phase: "results" });
   emitEvent(sessionId, { type: "results_ready", count: ranked.length });
+
+  // Inject results into conversation history so Claude knows what was found
+  const session = getSession(sessionId);
+  if (session) {
+    const summary = ranked
+      .map(
+        (p, i) =>
+          `${i + 1}. ${p.name} (${p.credentials}) — ID: ${p.id}\n` +
+          `   Specialties: ${p.specialties.join(", ")}\n` +
+          `   Insurance: ${p.insuranceAccepted.join(", ") || "self-pay only"}\n` +
+          `   Location: ${p.location}${p.telehealth ? " (telehealth available)" : ""}\n` +
+          `   Next slot: ${p.nextAvailableSlot ? new Date(p.nextAvailableSlot).toLocaleDateString() : "contact to schedule"}\n` +
+          `   Booking URL: ${p.bookingUrl ?? "no online booking"}`
+      )
+      .join("\n\n");
+
+    session.conversationHistory.push({
+      role: "assistant",
+      content:
+        `Search complete. Here are the ${ranked.length} therapists I found for the user:\n\n${summary}\n\n` +
+        `These results are now displayed to the user on the results page. When they select one, use their exact ID to start_booking.`,
+    });
+  }
 }
 
 async function executeTool(
