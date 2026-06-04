@@ -26,6 +26,7 @@ export async function searchDirectories(
 ): Promise<NormalizedProfile[]> {
   emitEvent(sessionId, { type: "status", message: "Searching therapist directories…" });
   emitEvent(sessionId, { type: "search_progress", source: "psychology_today", found: 0 });
+  emitEvent(sessionId, { type: "status", message: "Finding therapists that match your preferences…" });
 
   const locationStr =
     prefs.location === "telehealth"
@@ -65,15 +66,16 @@ Return a JSON object: {"profiles": [...]} where each profile has:
 Make profiles varied: different genders, backgrounds, modalities. Be honest in tradeoffExplanation about insurance mismatches or waitlists.`;
 
   const response = await getClient().chat.completions.create({
-    model: process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4-5",
+    model: process.env.OPENROUTER_FAST_MODEL ?? "anthropic/claude-haiku-4-5",
     max_tokens: 2500,
     temperature: 0.7,
-    response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
   });
 
-  const text = response.choices[0].message.content ?? "{}";
-  const parsed = JSON.parse(text) as { profiles?: Record<string, unknown>[] };
+  const raw_text = response.choices[0].message.content ?? "{}";
+  // Strip markdown code fences if present
+  const jsonText = raw_text.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+  const parsed = JSON.parse(jsonText) as { profiles?: Record<string, unknown>[] };
   const raw = parsed.profiles ?? [];
 
   emitEvent(sessionId, { type: "search_progress", source: "psychology_today", found: raw.length });
