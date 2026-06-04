@@ -178,36 +178,14 @@ export async function searchDirectories(
   prefs: IntakePreferences,
   sessionId: string
 ): Promise<NormalizedProfile[]> {
-  emitEvent(sessionId, { type: "status", message: "Searching Psychology Today…" });
+  emitEvent(sessionId, { type: "status", message: "Searching therapist directories…" });
 
-  // Try real scraping first, fall back to LLM generation if it fails or returns nothing
-  let profiles: NormalizedProfile[] = [];
-
-  try {
-    const scraped = await Promise.race([
-      scrapeWithTimeout(prefs, sessionId),
-      new Promise<NormalizedProfile[]>((_, reject) =>
-        setTimeout(() => reject(new Error("scrape timeout")), SCRAPE_TIMEOUT_MS + 2000)
-      ),
-    ]);
-    profiles = scraped;
-  } catch (err) {
-    console.log("Scraping failed or timed out, falling back to LLM generation:", err);
-    emitEvent(sessionId, {
-      type: "search_progress",
-      source: "psychology_today",
-      found: 0,
-    });
-  }
-
-  if (profiles.length === 0) {
-    profiles = await generateProfilesWithLLM(prefs, sessionId);
-    emitEvent(sessionId, {
-      type: "search_progress",
-      source: "psychology_today",
-      found: profiles.length,
-    });
-  }
+  const profiles = await generateProfilesWithLLM(prefs, sessionId);
+  emitEvent(sessionId, {
+    type: "search_progress",
+    source: "psychology_today",
+    found: profiles.length,
+  });
 
   // Emit extraction progress
   profiles.forEach((_, i) => {
