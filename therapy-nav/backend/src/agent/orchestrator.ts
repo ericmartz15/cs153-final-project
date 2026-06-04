@@ -7,14 +7,20 @@ import { generateOutreachMessage } from "./tools/outreachTool.js";
 import { getSession, updateSession, emitEvent } from "../sessionStore.js";
 import { IntakePreferences, RankedProfile } from "../types/index.js";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-  defaultHeaders: {
-    "HTTP-Referer": "https://therapynav.app",
-    "X-OpenRouter-Title": "TherapyNav",
-  },
-});
+let _client: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (!_client) {
+    _client = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: {
+        "HTTP-Referer": "https://therapynav.app",
+        "X-OpenRouter-Title": "TherapyNav",
+      },
+    });
+  }
+  return _client;
+}
 
 const MODEL = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4-5";
 
@@ -262,7 +268,7 @@ export async function runOrchestratorTurn(
     })),
   ];
 
-  let response = await client.chat.completions.create({
+  let response = await getClient().chat.completions.create({
     model: MODEL,
     max_tokens: 4096,
     tools: TOOLS,
@@ -299,7 +305,7 @@ export async function runOrchestratorTurn(
       });
     }
 
-    response = await client.chat.completions.create({
+    response = await getClient().chat.completions.create({
       model: MODEL,
       max_tokens: 4096,
       tools: TOOLS,
