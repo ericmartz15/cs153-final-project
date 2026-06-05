@@ -5,6 +5,7 @@ import http from "http";
 import WebSocket from "ws";
 import sessionRoutes from "./routes/session.js";
 import { registerSocket, unregisterSocket } from "./sessionStore.js";
+import { DEMO_BOOKING_HTML } from "./demoBookingForm.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -20,6 +21,12 @@ app.use("/api/session", sessionRoutes);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+// Demo booking form — used as a real target for the booking automation agent
+app.get("/demo-booking", (_req, res) => {
+  res.setHeader("Content-Type", "text/html");
+  res.send(DEMO_BOOKING_HTML);
 });
 
 // WebSocket: clients connect with ?sessionId=xxx
