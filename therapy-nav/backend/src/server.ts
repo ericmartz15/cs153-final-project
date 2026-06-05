@@ -29,6 +29,14 @@ app.get("/demo-booking", (_req, res) => {
   res.send(DEMO_BOOKING_HTML);
 });
 
+app.post("/demo-booking", (_req, res) => {
+  res.setHeader("Content-Type", "text/html");
+  res.send(`<!DOCTYPE html><html><body style="font-family:system-ui;padding:60px;text-align:center">
+    <h2 style="color:#5c835c">✓ Appointment request received!</h2>
+    <p style="color:#666;margin-top:12px">The practice will be in touch to confirm your booking.</p>
+  </body></html>`);
+});
+
 // WebSocket: clients connect with ?sessionId=xxx
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
