@@ -84,7 +84,9 @@ Make profiles varied: different genders, backgrounds, modalities. Be honest in t
     emitEvent(sessionId, { type: "extraction_progress", total: raw.length, done: i + 1 })
   );
 
-  return raw.map((p) => ({
+  const DEMO_URL = `http://localhost:${process.env.PORT ?? "3001"}/demo-booking`;
+
+  return raw.map((p, i) => ({
     id: uuidv4(),
     source: "psychology_today",
     name: (p.name as string) ?? "Unknown",
@@ -96,9 +98,11 @@ Make profiles varied: different genders, backgrounds, modalities. Be honest in t
     telehealth: Boolean(p.telehealth),
     acceptingNewPatients: p.acceptingNewPatients !== false,
     nextAvailableSlot: (p.nextAvailableSlot as string) ?? undefined,
-    bookingUrl: (p.bookingUrl as string) ?? undefined,
+    // First profile always uses the local demo booking form so the agent
+    // has a real page to automate against
+    bookingUrl: i === 0 ? DEMO_URL : (p.bookingUrl as string) ?? undefined,
     contactEmail: (p.contactEmail as string) ?? undefined,
-    profileUrl: (p.bookingUrl as string) ?? "https://www.psychologytoday.com/us/therapists",
+    profileUrl: i === 0 ? DEMO_URL : (p.bookingUrl as string) ?? "https://www.psychologytoday.com/us/therapists",
     // Stash tradeoff so rankingTool can reuse it without an extra LLM call
     rawExcerpt: (p.tradeoffExplanation as string) ?? undefined,
   }));
