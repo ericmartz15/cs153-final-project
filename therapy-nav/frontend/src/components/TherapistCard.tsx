@@ -140,7 +140,7 @@ export function TherapistCard({ profile, onBook, rank }: Props) {
         onClick={() => onBook(profile.id)}
         className="w-full mt-5 py-3 bg-sage-500 hover:bg-sage-600 text-white font-medium rounded-xl transition-colors"
       >
-        Book with {profile.name.split(" ")[0]}
+        Book with {profile.name.replace(/^Dr\.?\s+/i, "").split(" ")[0]}
       </button>
     </div>
   );

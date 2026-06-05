@@ -57,7 +57,7 @@ Return a JSON object: {"profiles": [...]} where each profile has:
   "location": "City, ST",
   "telehealth": true or false,
   "acceptingNewPatients": true,
-  "nextAvailableSlot": "ISO date within next 10 days" or null,
+  "nextAvailableSlot": "ISO date within next 10 days from today (today is ${new Date().toISOString().split("T")[0]})" or null,
   "bookingUrl": "https://www.psychologytoday.com/us/therapists/firstname-lastname-citystate/123456",
   "contactEmail": "firstname@therapypractice.com" or null,
   "tradeoffExplanation": "1-2 warm sentences explaining why this therapist fits and any honest tradeoffs"
